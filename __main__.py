@@ -19,8 +19,10 @@ for col in df_perf.columns:
             # Strip the '%', convert to float, and divide by 100 to make it a decimal
             df_perf[col] = df_perf[col].str.rstrip('%').astype(float) / 100.0
 
-# 4 Drop the 'Perf YTD' column
+# 4 Drop the 'Perf YTD', 'Avg Volume', and 'Volume' column
 df_perf.drop('Perf YTD', axis=1, inplace=True)
+df_perf.drop('Avg Volume', axis=1, inplace=True)
+df_perf.drop('Volume', axis=1, inplace=True)
 
 # 5. Rename 'Change' to 'Perf Day'
 df_perf.rename(columns={'Change': 'Perf Day'}, inplace=True)
