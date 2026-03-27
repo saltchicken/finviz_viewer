@@ -29,3 +29,47 @@ df_perf.rename(columns={'Change': 'Perf Day'}, inplace=True)
 
 with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
     print(df_perf)
+
+
+# List the time periods in chronological order (oldest to newest)
+time_cols = ['Perf Year', 'Perf Half', 'Perf Quart', 'Perf Month']
+
+trends = {
+    'constantly_up': [],
+    'constantly_down': [],
+    'positive_to_negative': [],
+    'negative_to_positive': [],
+    'mixed': []
+}
+
+for index, row in df_perf.iterrows():
+    # Extract the values for the time columns
+    vals = row[time_cols].values
+    
+    # Check for constant trends
+    if all(v > 0 for v in vals):
+        trends['constantly_up'].append(row['Name'])
+    elif all(v < 0 for v in vals):
+        trends['constantly_down'].append(row['Name'])
+    else:
+        # Check for transitions by counting how many times the sign changes
+        signs = [1 if v > 0 else -1 for v in vals]
+        sign_changes = sum(1 for i in range(len(signs)-1) if signs[i] != signs[i+1])
+                
+        if sign_changes == 1:
+            if signs[0] == 1 and signs[-1] == -1:
+                trends['positive_to_negative'].append(row['Name'])
+            elif signs[0] == -1 and signs[-1] == 1:
+                trends['negative_to_positive'].append(row['Name'])
+            else:
+                trends['mixed'].append(row['Name'])
+        else:
+            trends['mixed'].append(row['Name'])
+
+# Print the results
+print("\n--- Sector Trends ---")
+print(f"Constantly Going Up: {', '.join(trends['constantly_up']) if trends['constantly_up'] else 'None'}")
+print(f"Constantly Going Down: {', '.join(trends['constantly_down']) if trends['constantly_down'] else 'None'}")
+print(f"Transitioning Positive to Negative: {', '.join(trends['positive_to_negative']) if trends['positive_to_negative'] else 'None'}")
+print(f"Transitioning Negative to Positive: {', '.join(trends['negative_to_positive']) if trends['negative_to_positive'] else 'None'}")
+print(f"Mixed/Fluctuating: {', '.join(trends['mixed']) if trends['mixed'] else 'None'}")
