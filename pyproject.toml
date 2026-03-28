@@ -15,9 +15,10 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["trends"]
+py-modules = ["trends", "screener"]
 
 [project.scripts]
 # This allows you to run your script from the terminal by typing 'finviz-trends'
 finviz-trends = "trends:main"
+finviz-screener = "screener:main"
 
