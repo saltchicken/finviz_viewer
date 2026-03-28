@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finviz-performance-trends"
+version = "0.1.0"
+description = "A script to extract, clean, and analyze sector performance trends using Finviz data."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+dependencies = [
+    "finvizfinance>=0.14.7"
+]
+
+[tool.setuptools]
+py-modules = ["trends"]
+
+[project.scripts]
+# This allows you to run your script from the terminal by typing 'finviz-trends'
+finviz-trends = "trends:main"
+
