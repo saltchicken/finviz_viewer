@@ -1,28 +1,63 @@
 import argparse
 import sys
+import time
 import pandas as pd
 from finvizfinance.screener.overview import Overview
+from finvizfinance.screener.valuation import Valuation
+from finvizfinance.screener.financial import Financial
+from finvizfinance.screener.ownership import Ownership
+from finvizfinance.screener.performance import Performance
+from finvizfinance.screener.technical import Technical
 
 
 def fetch_group_tickers(filters_dict: dict) -> pd.DataFrame:
     """
-    Pulls the screener overview data for the specified filters.
+    Pulls the screener data for the specified filters across all tabs and merges them.
 
     Args:
         filters_dict (dict): A dictionary of filters (e.g., {'Sector': 'Technology'})
 
     Returns:
-        pd.DataFrame: A DataFrame containing the screener overview data.
+        pd.DataFrame: A DataFrame containing the combined screener data.
     """
-    try:
-        screener = Overview()
-        screener.set_filter(filters_dict=filters_dict)
-        # Fetch the data. Finviz might paginate; finvizfinance handles this automatically.
-        df = screener.screener_view()
-        return df
-    except Exception as e:
-        print(f"Error fetching data from Finviz: {e}", file=sys.stderr)
-        return pd.DataFrame()
+    tabs = [
+        ("Overview", Overview),
+        ("Valuation", Valuation),
+        ("Financial", Financial),
+        ("Ownership", Ownership),
+        ("Performance", Performance),
+        ("Technical", Technical),
+    ]
+
+    merged_df = None
+
+    for tab_name, screener_class in tabs:
+        try:
+            print(f"  -> Fetching {tab_name} tab...")
+            screener = screener_class()
+            screener.set_filter(filters_dict=filters_dict)
+            # Fetch the data. finvizfinance handles pagination automatically.
+            df = screener.screener_view()
+
+            if df.empty:
+                continue
+
+            if merged_df is None:
+                merged_df = df
+            else:
+                # Only keep columns that aren't already in the merged dataframe, plus 'Ticker' to merge on
+                new_cols = df.columns.difference(merged_df.columns).tolist()
+                new_cols.append("Ticker")
+                merged_df = pd.merge(merged_df, df[new_cols], on="Ticker", how="outer")
+
+            # Add a delay to avoid Finviz's rate limits (HTTP 429 Too Many Requests)
+            print(f"     (Waiting 3 seconds to respect rate limits...)")
+            time.sleep(3)
+
+        except Exception as e:
+            print(f"Error fetching {tab_name} data from Finviz: {e}", file=sys.stderr)
+
+    return merged_df if merged_df is not None else pd.DataFrame()
 
 
 def main():
@@ -55,7 +90,7 @@ def main():
     parser.add_argument(
         "--sort",
         type=str,
-        help="Column to sort by (e.g., 'Market Cap', 'Volume', 'Price', 'P/E')",
+        help="Column to sort by (e.g., 'Market Cap', 'Float Short', 'Price', 'P/E')",
     )
     parser.add_argument(
         "--asc",
@@ -82,7 +117,7 @@ def main():
         print("Example: python screener.py --sector Technology", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Fetching data for filters: {filters}...")
+    print(f"Fetching all data tabs for filters: {filters}...")
     df = fetch_group_tickers(filters)
 
     if df.empty:
@@ -93,15 +128,12 @@ def main():
     if args.sort:
         if args.sort in df.columns:
             # Finviz often returns strings like "1.5B", "500M", or "2.5%" for metrics.
-            # We need to convert these to floats to sort them accurately.
             def parse_finviz_metric(val):
                 if pd.isna(val):
                     return 0.0
                 s = str(val).strip().replace(",", "")
                 if s == "-":
-                    return (
-                        float("inf") if args.asc else -float("inf")
-                    )  # Push missing data to the bottom
+                    return float("inf") if args.asc else -float("inf")
 
                 mult = 1.0
                 if s.endswith("B"):
@@ -123,7 +155,6 @@ def main():
                     return 0.0
 
             df["_sort_val"] = df[args.sort].apply(parse_finviz_metric)
-            # Default to descending (e.g., highest Market Cap first) unless --asc is passed
             df = df.sort_values(by="_sort_val", ascending=args.asc).drop(
                 columns=["_sort_val"]
             )
@@ -131,25 +162,21 @@ def main():
                 f"Sorted by {args.sort} ({'ascending' if args.asc else 'descending'})"
             )
         else:
-            print(
-                f"Warning: Sort column '{args.sort}' not found. Available columns: {', '.join(df.columns)}"
-            )
+            print(f"Warning: Sort column '{args.sort}' not found.")
+            print(f"Available columns: {', '.join(df.columns)}")
 
     # Extract just the ticker symbols
     tickers = df["Ticker"].tolist()
     print(f"\nFound {len(tickers)} tickers:\n")
 
     if args.details:
-        # Print the entire dataframe with all columns
         with pd.option_context(
             "display.max_rows", None, "display.max_columns", None, "display.width", 1000
         ):
             print(df)
     else:
-        # Print just a clean, comma-separated list of tickers
         print(", ".join(tickers))
 
-    # Export to CSV if requested
     if args.export:
         df.to_csv(args.export, index=False)
         print(f"\nExported full details to {args.export}")
