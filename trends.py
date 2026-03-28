@@ -48,10 +48,10 @@ def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
     weights = {
         "Perf Day": 0.5,
         "Perf Week": 1.0,
-        "Perf Month": 3.0,   # High weight on 1-month momentum
-        "Perf Quart": 2.0,   # Moderate weight on quarterly momentum
+        "Perf Month": 3.0,  # High weight on 1-month momentum
+        "Perf Quart": 2.0,  # Moderate weight on quarterly momentum
         "Perf Half": 1.5,
-        "Perf Year": 1.0
+        "Perf Year": 1.0,
     }
 
     df_scored = df.copy()
@@ -65,18 +65,22 @@ def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
 
     # Incorporate Rel Volume as a conviction multiplier into a NEW score
     if "Rel Volume" in df_scored.columns:
-        # Multiply the score by Rel Volume for the new column. 
-        df_scored["Vol Score"] = df_scored["Score"] * df_scored["Rel Volume"].fillna(1.0)
+        # Multiply the score by Rel Volume for the new column.
+        df_scored["Vol Score"] = df_scored["Score"] * df_scored["Rel Volume"].fillna(
+            1.0
+        )
     else:
         df_scored["Vol Score"] = df_scored["Score"]
 
     # Round to 4 decimal places for cleaner display
     df_scored["Score"] = df_scored["Score"].round(4)
     df_scored["Vol Score"] = df_scored["Vol Score"].round(4)
-    
+
     # Sort the DataFrame by Vol Score descending so the best performers appear first
-    df_scored = df_scored.sort_values(by="Vol Score", ascending=False).reset_index(drop=True)
-    
+    df_scored = df_scored.sort_values(by="Vol Score", ascending=False).reset_index(
+        drop=True
+    )
+
     return df_scored
 
 
@@ -87,7 +91,7 @@ def analyze_trends(df: pd.DataFrame, time_cols: list) -> pd.DataFrame:
 
     for _, row in df_analyzed.iterrows():
         vals = row[time_cols].values
-        
+
         # Check for constant trends
         if all(v > 0 for v in vals):
             trends_list.append("Constantly Up")
@@ -129,10 +133,10 @@ def main():
 
     # 1. Fetch
     raw_df = fetch_performance_data(group=args.group)
-    
+
     # 2. Clean
     df_perf = clean_performance_data(raw_df)
-    
+
     # 3. Score & Sort
     df_perf = calculate_scores(df_perf)
 
@@ -145,6 +149,7 @@ def main():
         "display.max_rows", None, "display.max_columns", None, "display.width", 1000
     ):
         print(df_perf)
+
 
 if __name__ == "__main__":
     main()
