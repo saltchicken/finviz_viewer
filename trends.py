@@ -80,29 +80,19 @@ def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
     return df_scored
 
 
-def analyze_trends(df: pd.DataFrame, time_cols: list) -> dict:
-    """Categorizes rows into trends based on their chronological performance."""
-    trends = {
-        "constantly_up": [],
-        "constantly_down": [],
-        "positive_to_negative": [],
-        "negative_to_positive": [],
-        "mixed": [],
-    }
+def analyze_trends(df: pd.DataFrame, time_cols: list) -> pd.DataFrame:
+    """Categorizes rows into trends based on their chronological performance and adds a 'Trend' column."""
+    df_analyzed = df.copy()
+    trends_list = []
 
-    for _, row in df.iterrows():
+    for _, row in df_analyzed.iterrows():
         vals = row[time_cols].values
         
-        # Format the name to include both calculated scores
-        score = row.get("Score", 0.0)
-        vol_score = row.get("Vol Score", 0.0)
-        item_label = f"{row['Name']} (Score: {score}, Vol: {vol_score})"
-
         # Check for constant trends
         if all(v > 0 for v in vals):
-            trends["constantly_up"].append(item_label)
+            trends_list.append("Constantly Up")
         elif all(v < 0 for v in vals):
-            trends["constantly_down"].append(item_label)
+            trends_list.append("Constantly Down")
         else:
             # Check for transitions by counting how many times the sign changes
             signs = [1 if v > 0 else -1 for v in vals]
@@ -112,35 +102,17 @@ def analyze_trends(df: pd.DataFrame, time_cols: list) -> dict:
 
             if sign_changes == 1:
                 if signs[0] == 1 and signs[-1] == -1:
-                    trends["positive_to_negative"].append(item_label)
+                    trends_list.append("Positive to Negative")
                 elif signs[0] == -1 and signs[-1] == 1:
-                    trends["negative_to_positive"].append(item_label)
+                    trends_list.append("Negative to Positive")
                 else:
-                    trends["mixed"].append(item_label)
+                    trends_list.append("Mixed")
             else:
-                trends["mixed"].append(item_label)
+                trends_list.append("Mixed")
 
-    return trends
-
-
-def print_trend_report(trends: dict, group: str = "Sector"):
-    """Prints the formatted trend results to the console."""
-    print(f"\n--- {group.capitalize()} Trends (Ranked by Score) ---")
-    print(
-        f"Constantly Going Up: {', '.join(trends['constantly_up']) if trends['constantly_up'] else 'None'}"
-    )
-    print(
-        f"Constantly Going Down: {', '.join(trends['constantly_down']) if trends['constantly_down'] else 'None'}"
-    )
-    print(
-        f"Transitioning Positive to Negative: {', '.join(trends['positive_to_negative']) if trends['positive_to_negative'] else 'None'}"
-    )
-    print(
-        f"Transitioning Negative to Positive: {', '.join(trends['negative_to_positive']) if trends['negative_to_positive'] else 'None'}"
-    )
-    print(
-        f"Mixed/Fluctuating: {', '.join(trends['mixed']) if trends['mixed'] else 'None'}"
-    )
+    # Add the evaluated trend as a new column to the dataframe
+    df_analyzed["Trend"] = trends_list
+    return df_analyzed
 
 
 def main():
@@ -164,18 +136,15 @@ def main():
     # 3. Score & Sort
     df_perf = calculate_scores(df_perf)
 
+    # 4. Analyze (Add Trend column)
+    time_cols = ["Perf Year", "Perf Half", "Perf Quart", "Perf Month"]
+    df_perf = analyze_trends(df_perf, time_cols)
+
+    # Print the DataFrame WITH the newly added Trend column
     with pd.option_context(
         "display.max_rows", None, "display.max_columns", None, "display.width", 1000
     ):
         print(df_perf)
-
-    # 4. Analyze
-    time_cols = ["Perf Year", "Perf Half", "Perf Quart", "Perf Month"]
-    trends = analyze_trends(df_perf, time_cols)
-
-    # 5. Report
-    print_trend_report(trends, group=args.group)
-
 
 if __name__ == "__main__":
     main()
