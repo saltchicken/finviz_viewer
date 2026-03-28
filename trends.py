@@ -38,6 +38,36 @@ def clean_performance_data(df: pd.DataFrame) -> pd.DataFrame:
     return df_clean
 
 
+def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculates a momentum/trend score for each group based on weighted performance."""
+    # Define weights. You can easily adjust these to prioritize short vs long-term performance.
+    weights = {
+        "Perf Day": 0.5,
+        "Perf Week": 1.0,
+        "Perf Month": 3.0,   # High weight on 1-month momentum
+        "Perf Quart": 2.0,   # Moderate weight on quarterly momentum
+        "Perf Half": 1.5,
+        "Perf Year": 1.0
+    }
+
+    df_scored = df.copy()
+    df_scored["Score"] = 0.0
+
+    # Apply weights to calculate the total score
+    for col, weight in weights.items():
+        if col in df_scored.columns:
+            # fillna(0) ensures missing data doesn't turn the whole score into NaN
+            df_scored["Score"] += df_scored[col].fillna(0) * weight
+
+    # Round to 4 decimal places for cleaner display
+    df_scored["Score"] = df_scored["Score"].round(4)
+    
+    # Sort the DataFrame by Score descending so the best performers appear first
+    df_scored = df_scored.sort_values(by="Score", ascending=False).reset_index(drop=True)
+    
+    return df_scored
+
+
 def analyze_trends(df: pd.DataFrame, time_cols: list) -> dict:
     """Categorizes rows into trends based on their chronological performance."""
     trends = {
@@ -50,12 +80,16 @@ def analyze_trends(df: pd.DataFrame, time_cols: list) -> dict:
 
     for _, row in df.iterrows():
         vals = row[time_cols].values
+        
+        # Format the name to include the newly calculated score
+        score = row.get("Score", 0.0)
+        item_label = f"{row['Name']} ({score})"
 
         # Check for constant trends
         if all(v > 0 for v in vals):
-            trends["constantly_up"].append(row["Name"])
+            trends["constantly_up"].append(item_label)
         elif all(v < 0 for v in vals):
-            trends["constantly_down"].append(row["Name"])
+            trends["constantly_down"].append(item_label)
         else:
             # Check for transitions by counting how many times the sign changes
             signs = [1 if v > 0 else -1 for v in vals]
@@ -65,20 +99,20 @@ def analyze_trends(df: pd.DataFrame, time_cols: list) -> dict:
 
             if sign_changes == 1:
                 if signs[0] == 1 and signs[-1] == -1:
-                    trends["positive_to_negative"].append(row["Name"])
+                    trends["positive_to_negative"].append(item_label)
                 elif signs[0] == -1 and signs[-1] == 1:
-                    trends["negative_to_positive"].append(row["Name"])
+                    trends["negative_to_positive"].append(item_label)
                 else:
-                    trends["mixed"].append(row["Name"])
+                    trends["mixed"].append(item_label)
             else:
-                trends["mixed"].append(row["Name"])
+                trends["mixed"].append(item_label)
 
     return trends
 
 
 def print_trend_report(trends: dict, group: str = "Sector"):
     """Prints the formatted trend results to the console."""
-    print(f"\n--- {group.capitalize()} Trends ---")
+    print(f"\n--- {group.capitalize()} Trends (Ranked by Score) ---")
     print(
         f"Constantly Going Up: {', '.join(trends['constantly_up']) if trends['constantly_up'] else 'None'}"
     )
@@ -108,17 +142,25 @@ def main():
     )
     args = parser.parse_args()
 
+    # 1. Fetch
     raw_df = fetch_performance_data(group=args.group)
+    
+    # 2. Clean
     df_perf = clean_performance_data(raw_df)
+    
+    # 3. Score & Sort
+    df_perf = calculate_scores(df_perf)
 
     with pd.option_context(
         "display.max_rows", None, "display.max_columns", None, "display.width", 1000
     ):
         print(df_perf)
 
+    # 4. Analyze
     time_cols = ["Perf Year", "Perf Half", "Perf Quart", "Perf Month"]
     trends = analyze_trends(df_perf, time_cols)
 
+    # 5. Report
     print_trend_report(trends, group=args.group)
 
 
