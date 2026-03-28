@@ -26,6 +26,10 @@ def clean_performance_data(df: pd.DataFrame) -> pd.DataFrame:
             if df_clean[col].astype(str).str.contains("%").any():
                 df_clean[col] = df_clean[col].str.rstrip("%").astype(float) / 100.0
 
+    # Ensure Rel Volume is numeric (Finviz sometimes leaves it as a string like "1.25")
+    if "Rel Volume" in df_clean.columns:
+        df_clean["Rel Volume"] = pd.to_numeric(df_clean["Rel Volume"], errors="coerce")
+
     # Drop unnecessary columns safely
     cols_to_drop = ["Perf YTD", "Avg Volume", "Volume"]
     df_clean.drop(
@@ -59,11 +63,19 @@ def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
             # fillna(0) ensures missing data doesn't turn the whole score into NaN
             df_scored["Score"] += df_scored[col].fillna(0) * weight
 
+    # Incorporate Rel Volume as a conviction multiplier into a NEW score
+    if "Rel Volume" in df_scored.columns:
+        # Multiply the score by Rel Volume for the new column. 
+        df_scored["Vol Score"] = df_scored["Score"] * df_scored["Rel Volume"].fillna(1.0)
+    else:
+        df_scored["Vol Score"] = df_scored["Score"]
+
     # Round to 4 decimal places for cleaner display
     df_scored["Score"] = df_scored["Score"].round(4)
+    df_scored["Vol Score"] = df_scored["Vol Score"].round(4)
     
-    # Sort the DataFrame by Score descending so the best performers appear first
-    df_scored = df_scored.sort_values(by="Score", ascending=False).reset_index(drop=True)
+    # Sort the DataFrame by Vol Score descending so the best performers appear first
+    df_scored = df_scored.sort_values(by="Vol Score", ascending=False).reset_index(drop=True)
     
     return df_scored
 
@@ -81,9 +93,10 @@ def analyze_trends(df: pd.DataFrame, time_cols: list) -> dict:
     for _, row in df.iterrows():
         vals = row[time_cols].values
         
-        # Format the name to include the newly calculated score
+        # Format the name to include both calculated scores
         score = row.get("Score", 0.0)
-        item_label = f"{row['Name']} ({score})"
+        vol_score = row.get("Vol Score", 0.0)
+        item_label = f"{row['Name']} (Score: {score}, Vol: {vol_score})"
 
         # Check for constant trends
         if all(v > 0 for v in vals):
