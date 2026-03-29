@@ -1,12 +1,18 @@
 import argparse
 import sys
+import time
 import pandas as pd
-from finvizfinance.screener.custom import Custom
+from finvizfinance.screener.overview import Overview
+from finvizfinance.screener.valuation import Valuation
+from finvizfinance.screener.financial import Financial
+from finvizfinance.screener.ownership import Ownership
+from finvizfinance.screener.performance import Performance
+from finvizfinance.screener.technical import Technical
 
 
 def fetch_group_tickers(filters_dict: dict) -> pd.DataFrame:
     """
-    Pulls the screener data for the specified filters using a single Custom tab call.
+    Pulls the screener data for the specified filters across all tabs and merges them.
 
     Args:
         filters_dict (dict): A dictionary of filters (e.g., {'Sector': 'Technology'})
@@ -14,37 +20,44 @@ def fetch_group_tickers(filters_dict: dict) -> pd.DataFrame:
     Returns:
         pd.DataFrame: A DataFrame containing the combined screener data.
     """
-    try:
-        print(f"  -> Fetching comprehensive data via Custom tab...")
-        custom_screener = Custom()
-        custom_screener.set_filter(filters_dict=filters_dict)
-        
-        # Finviz Custom screener expects a list of integer indices for columns.
-        # IDs 1 through 75 cover all standard metrics across Overview, Valuation, 
-        # Financial, Ownership, Performance, and Technical tabs, plus Target Price.
-        all_col_indices = list(range(1, 500))
-        
-        # Fetch the data. finvizfinance handles pagination automatically.
-        df = custom_screener.screener_view(columns=all_col_indices)
+    tabs = [
+        ("Overview", Overview),
+        ("Valuation", Valuation),
+        ("Financial", Financial),
+        ("Ownership", Ownership),
+        ("Performance", Performance),
+        ("Technical", Technical),
+    ]
 
-        if df.empty:
-            return pd.DataFrame()
+    merged_df = None
 
-        # Optional Bonus: Calculate Upside Percentage if Price and Target Price are available
-        if 'Price' in df.columns and 'Target Price' in df.columns:
-            # Clean up commas and convert to numeric, coercing missing values ("-") to NaN
-            df['Target Price'] = pd.to_numeric(df['Target Price'].astype(str).str.replace(',', ''), errors='coerce')
-            df['Price'] = pd.to_numeric(df['Price'].astype(str).str.replace(',', ''), errors='coerce')
-            
-            # Calculate the Upside %
-            df['Upside (%)'] = ((df['Target Price'] - df['Price']) / df['Price']) * 100
-            df['Upside (%)'] = df['Upside (%)'].round(2)
-            
-        return df
+    for tab_name, screener_class in tabs:
+        try:
+            print(f"  -> Fetching {tab_name} tab...")
+            screener = screener_class()
+            screener.set_filter(filters_dict=filters_dict)
+            # Fetch the data. finvizfinance handles pagination automatically.
+            df = screener.screener_view()
 
-    except Exception as e:
-        print(f"Error fetching data from Finviz: {e}", file=sys.stderr)
-        return pd.DataFrame()
+            if df.empty:
+                continue
+
+            if merged_df is None:
+                merged_df = df
+            else:
+                # Only keep columns that aren't already in the merged dataframe, plus 'Ticker' to merge on
+                new_cols = df.columns.difference(merged_df.columns).tolist()
+                new_cols.append("Ticker")
+                merged_df = pd.merge(merged_df, df[new_cols], on="Ticker", how="outer")
+
+            # Add a delay to avoid Finviz's rate limits (HTTP 429 Too Many Requests)
+            print(f"     (Waiting 3 seconds to respect rate limits...)")
+            time.sleep(3)
+
+        except Exception as e:
+            print(f"Error fetching {tab_name} data from Finviz: {e}", file=sys.stderr)
+
+    return merged_df if merged_df is not None else pd.DataFrame()
 
 
 def main():
@@ -77,7 +90,7 @@ def main():
     parser.add_argument(
         "--sort",
         type=str,
-        help="Column to sort by (e.g., 'Market Cap', 'Target Price', 'Upside (%)', 'Price')",
+        help="Column to sort by (e.g., 'Market Cap', 'Float Short', 'Price', 'P/E')",
     )
     parser.add_argument(
         "--asc",
@@ -104,7 +117,7 @@ def main():
         print("Example: python screener.py --sector Technology", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Fetching data via Custom tab for filters: {filters}...")
+    print(f"Fetching all data tabs for filters: {filters}...")
     df = fetch_group_tickers(filters)
 
     if df.empty:
@@ -167,6 +180,7 @@ def main():
     if args.export:
         df.to_csv(args.export, index=False)
         print(f"\nExported full details to {args.export}")
+
 
 if __name__ == "__main__":
     main()

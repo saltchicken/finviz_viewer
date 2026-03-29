@@ -11,7 +11,9 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 
 dependencies = [
-    "finvizfinance>=0.14.7"
+    "finvizfinance>=0.14.7",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0"
 ]
 
 [tool.setuptools]
