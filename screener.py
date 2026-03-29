@@ -9,7 +9,6 @@ from finvizfinance.screener.ownership import Ownership
 from finvizfinance.screener.performance import Performance
 from finvizfinance.screener.technical import Technical
 
-
 def fetch_group_tickers(filters_dict: dict) -> pd.DataFrame:
     """
     Pulls the screener data for the specified filters across all tabs and merges them.
@@ -60,43 +59,36 @@ def fetch_group_tickers(filters_dict: dict) -> pd.DataFrame:
     return merged_df if merged_df is not None else pd.DataFrame()
 
 
+def clean_columns_for_db(df: pd.DataFrame) -> pd.DataFrame:
+    """Formats column names to be strictly PostgreSQL-friendly."""
+    df_db = df.copy()
+    df_db.columns = (
+        df_db.columns.str.lower()
+        .str.replace(" ", "_")
+        .str.replace("/", "_")
+        .str.replace("%", "pct")
+        .str.replace("(", "")
+        .str.replace(")", "")
+        .str.replace("-", "_")
+    )
+    return df_db
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Find all tickers in a specific Finviz group (Sector, Industry, Country)."
     )
-    parser.add_argument(
-        "--sector",
-        type=str,
-        help="Filter by Sector (e.g., 'Technology', 'Basic Materials')",
-    )
-    parser.add_argument(
-        "--industry",
-        type=str,
-        help="Filter by Industry (e.g., 'Semiconductors', 'Gold')",
-    )
-    parser.add_argument(
-        "--country", type=str, help="Filter by Country (e.g., 'USA', 'China')"
-    )
-    parser.add_argument(
-        "--export",
-        type=str,
-        help="Optional: Export the full detailed results to a CSV file (e.g., 'tech_stocks.csv')",
-    )
-    parser.add_argument(
-        "--details",
-        action="store_true",
-        help="Print the full detailed table instead of just the ticker symbols",
-    )
-    parser.add_argument(
-        "--sort",
-        type=str,
-        help="Column to sort by (e.g., 'Market Cap', 'Float Short', 'Price', 'P/E')",
-    )
-    parser.add_argument(
-        "--asc",
-        action="store_true",
-        help="Sort in ascending order (default is descending when --sort is used)",
-    )
+    parser.add_argument("--sector", type=str, help="Filter by Sector (e.g., 'Technology', 'Basic Materials')")
+    parser.add_argument("--industry", type=str, help="Filter by Industry (e.g., 'Semiconductors', 'Gold')")
+    parser.add_argument("--country", type=str, help="Filter by Country (e.g., 'USA', 'China')")
+    parser.add_argument("--export", type=str, help="Optional: Export the full detailed results to a CSV file")
+    parser.add_argument("--details", action="store_true", help="Print the full detailed table instead of just the ticker symbols")
+    parser.add_argument("--sort", type=str, help="Column to sort by (e.g., 'Market Cap', 'Float Short', 'Price', 'P/E')")
+    parser.add_argument("--asc", action="store_true", help="Sort in ascending order (default is descending when --sort is used)")
+    
+    # --- New Database Arguments ---
+    parser.add_argument("--db-url", type=str, help="PostgreSQL Connection URL (e.g., postgresql://user:pass@localhost:5432/dbname)")
+    parser.add_argument("--db-table", type=str, help="The name of the PostgreSQL table to insert the data into")
 
     args = parser.parse_args()
 
@@ -110,10 +102,7 @@ def main():
         filters["Country"] = args.country
 
     if not filters:
-        print(
-            "Please provide at least one filter (--sector, --industry, or --country).",
-            file=sys.stderr,
-        )
+        print("Please provide at least one filter (--sector, --industry, or --country).", file=sys.stderr)
         print("Example: python screener.py --sector Technology", file=sys.stderr)
         sys.exit(1)
 
@@ -127,7 +116,6 @@ def main():
     # Apply sorting if requested
     if args.sort:
         if args.sort in df.columns:
-            # Finviz often returns strings like "1.5B", "500M", or "2.5%" for metrics.
             def parse_finviz_metric(val):
                 if pd.isna(val):
                     return 0.0
@@ -155,12 +143,8 @@ def main():
                     return 0.0
 
             df["_sort_val"] = df[args.sort].apply(parse_finviz_metric)
-            df = df.sort_values(by="_sort_val", ascending=args.asc).drop(
-                columns=["_sort_val"]
-            )
-            print(
-                f"Sorted by {args.sort} ({'ascending' if args.asc else 'descending'})"
-            )
+            df = df.sort_values(by="_sort_val", ascending=args.asc).drop(columns=["_sort_val"])
+            print(f"Sorted by {args.sort} ({'ascending' if args.asc else 'descending'})")
         else:
             print(f"Warning: Sort column '{args.sort}' not found.")
             print(f"Available columns: {', '.join(df.columns)}")
@@ -170,9 +154,7 @@ def main():
     print(f"\nFound {len(tickers)} tickers:\n")
 
     if args.details:
-        with pd.option_context(
-            "display.max_rows", None, "display.max_columns", None, "display.width", 1000
-        ):
+        with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
             print(df)
     else:
         print(", ".join(tickers))
@@ -181,6 +163,29 @@ def main():
         df.to_csv(args.export, index=False)
         print(f"\nExported full details to {args.export}")
 
+    # --- New Database Export Logic ---
+    if args.db_url and args.db_table:
+        print(f"\nExporting to PostgreSQL database table: '{args.db_table}'...")
+        try:
+            from sqlalchemy import create_engine
+            
+            # Create SQLAlchemy engine
+            engine = create_engine(args.db_url)
+            
+            # Clean dataframe column names to be Postgres friendly (e.g. "Market Cap" -> "market_cap")
+            df_db = clean_columns_for_db(df)
+            
+            # Write to SQL. 'replace' drops the table before inserting new values. 
+            # Use 'append' if you want to keep historical data.
+            df_db.to_sql(args.db_table, engine, if_exists="replace", index=False)
+            
+            print(f"Successfully populated PostgreSQL table: {args.db_table}")
+        
+        except ImportError:
+            print("\nError: Missing database dependencies.", file=sys.stderr)
+            print("Please run: pip install sqlalchemy psycopg2-binary", file=sys.stderr)
+        except Exception as e:
+            print(f"\nDatabase export failed: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
