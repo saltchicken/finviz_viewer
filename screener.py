@@ -1,6 +1,7 @@
 import argparse
 import sys
 import time
+from datetime import datetime
 import pandas as pd
 from finvizfinance.screener.overview import Overview
 from finvizfinance.screener.valuation import Valuation
@@ -102,7 +103,7 @@ def main():
         help="Fetch ALL tickers (Warning: Takes a long time)",
     )
 
-    # --- New Database Arguments ---
+    # --- New Database & Export Arguments ---
     parser.add_argument(
         "--db-url",
         type=str,
@@ -112,6 +113,11 @@ def main():
         "--db-table",
         type=str,
         help="The name of the PostgreSQL table to insert the data into",
+    )
+    parser.add_argument(
+        "--out-csv",
+        type=str,
+        help="Prefix/Path to save a daily CSV file (e.g., 'data/screener'). The date will be appended automatically.",
     )
 
     args = parser.parse_args()
@@ -145,11 +151,23 @@ def main():
         print("No tickers found for the specified filters, or an error occurred.")
         sys.exit(0)
 
+    # --- Add timestamp for historical tracking ---
+    current_date = datetime.today().strftime("%Y-%m-%d")
+    df["Date"] = (
+        pd.Timestamp.today().normalize()
+    )  # Adds a clean date column (00:00:00 time)
+
     # Extract just the ticker symbols
     tickers = df["Ticker"].tolist()
-    print(f"\nFound {len(tickers)} tickers:\n")
+    print(f"\nFound {len(tickers)} tickers on {current_date}:\n")
 
-    # --- New Database Export Logic ---
+    # --- CSV Export Logic ---
+    if args.out_csv:
+        csv_filename = f"{args.out_csv}_{current_date}.csv"
+        df.to_csv(csv_filename, index=False)
+        print(f"Successfully saved daily run to CSV: {csv_filename}")
+
+    # --- Database Export Logic ---
     if args.db_url and args.db_table:
         print(f"\nExporting to PostgreSQL database table: '{args.db_table}'...")
         try:
@@ -161,11 +179,10 @@ def main():
             # Clean dataframe column names to be Postgres friendly (e.g. "Market Cap" -> "market_cap")
             df_db = clean_columns_for_db(df)
 
-            # Write to SQL. 'replace' drops the table before inserting new values.
-            # Use 'append' if you want to keep historical data.
-            df_db.to_sql(args.db_table, engine, if_exists="replace", index=False)
+            # Changed from "replace" to "append" to keep historical data from previous days
+            df_db.to_sql(args.db_table, engine, if_exists="append", index=False)
 
-            print(f"Successfully populated PostgreSQL table: {args.db_table}")
+            print(f"Successfully appended to PostgreSQL table: {args.db_table}")
 
         except ImportError:
             print("\nError: Missing database dependencies.", file=sys.stderr)
