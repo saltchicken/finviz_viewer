@@ -66,8 +66,10 @@ def fetch_group_tickers(filters_dict: dict) -> pd.DataFrame:
 
 
 def clean_columns_for_db(df: pd.DataFrame) -> pd.DataFrame:
-    """Formats column names to be strictly PostgreSQL-friendly."""
+    """Formats column names to be strictly PostgreSQL-friendly and rounds numbers."""
     df_db = df.copy()
+
+    # 1. General cleaning (lowercase, replace spaces/special chars)
     df_db.columns = (
         df_db.columns.str.lower()
         .str.replace(" ", "_")
@@ -77,6 +79,26 @@ def clean_columns_for_db(df: pd.DataFrame) -> pd.DataFrame:
         .str.replace(")", "")
         .str.replace("-", "_")
     )
+
+    # 2. Specific Renames (52w_high -> high_52w, etc.)
+    # Note: The general cleaning above turns "52W High" into "52w_high"
+    rename_map = {
+        "52w_high": "high_52w",
+        "52w_low": "low_52w"
+    }
+    df_db = df_db.rename(columns=rename_map)
+
+    for col in df_db.columns:
+        if df_db[col].dtype == 'object': # If Pandas thinks it's text
+            if df_db[col].astype(str).str.contains('%').any():
+                # Strip the '%' and convert to a float
+                df_db[col] = df_db[col].astype(str).str.replace('%', '').astype(float)
+
+    # 3. Numeric Rounding (The "I don't want to do this in SQL" fix)
+    # This rounds all float/int columns to 2 decimal places automatically
+    numeric_cols = df_db.select_dtypes(include=['number']).columns
+    df_db[numeric_cols] = df_db[numeric_cols].round(2)
+
     return df_db
 
 
@@ -154,8 +176,8 @@ def main():
     # --- Add timestamp for historical tracking ---
     current_date = datetime.today().strftime("%Y-%m-%d")
     df["Date"] = (
-        pd.Timestamp.today().normalize()
-    )  # Adds a clean date column (00:00:00 time)
+        pd.Timestamp.today().date()
+    )
 
     # Extract just the ticker symbols
     tickers = df["Ticker"].tolist()
